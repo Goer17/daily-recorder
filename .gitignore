@@ -129,3 +129,7 @@ dmypy.json
 
 # profiling data
 .prof
+
+# Project
+
+/warehouse/
