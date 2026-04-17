@@ -231,6 +231,7 @@
   </main>
 
   <script>
+    const READ_ONLY = __READ_ONLY__;
     const form = document.getElementById('daily-form');
     const statusEl = document.getElementById('status');
     const planList = document.getElementById('plan-list');
@@ -281,18 +282,24 @@
       doneInput.type = 'checkbox';
       doneInput.setAttribute('aria-label', 'done-new');
       doneInput.checked = done;
+      if (READ_ONLY) doneInput.disabled = true;
 
       const textInput = document.createElement('input');
       textInput.className = 'plan-text';
       textInput.type = 'text';
       textInput.required = true;
       textInput.value = text;
+      if (READ_ONLY) textInput.readOnly = true;
 
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'plan-del';
       delBtn.setAttribute('aria-label', '删除计划');
       delBtn.textContent = '删除';
+      if (READ_ONLY) {
+        delBtn.disabled = true;
+        delBtn.hidden = true;
+      }
 
       row.appendChild(doneInput);
       row.appendChild(textInput);
@@ -301,6 +308,7 @@
     }
 
     function bindDeleteButtons() {
+      if (READ_ONLY) return;
       const buttons = [...planList.querySelectorAll('.plan-del')];
       buttons.forEach((btn) => {
         if (btn.dataset.bound === '1') return;
@@ -409,7 +417,9 @@
     async function loadEntryForDate(dateText) {
       if (!recordedDates.has(dateText)) {
         clearEntryFields();
-        statusEl.textContent = '该日期暂无记录，可直接填写并提交。';
+        statusEl.textContent = READ_ONLY
+          ? '该日期暂无记录。'
+          : '该日期暂无记录，可直接填写并提交。';
         return;
       }
 
@@ -427,14 +437,37 @@
       form.querySelector('textarea[name="exercise"]').value = entry.exercise || '';
       autoGrow(form.querySelector('textarea[name="exercise"]'));
       setPrompts(Array.isArray(entry.prompts) ? entry.prompts : ['', '', '']);
-      statusEl.textContent = `已加载 ${dateText} 的记录，可继续修改后提交。`;
+      statusEl.textContent = READ_ONLY
+        ? `已加载 ${dateText} 的记录（只读）。`
+        : `已加载 ${dateText} 的记录，可继续修改后提交。`;
+    }
+
+    function applyReadOnlyMode() {
+      if (!READ_ONLY) return;
+      const controls = [...form.querySelectorAll('input, textarea, button')];
+      controls.forEach((el) => {
+        if (el.classList.contains('calendar-day') || el.classList.contains('month-btn')) return;
+        if (el.id === 'plan-add' || el.classList.contains('plan-del') || el.type === 'submit') {
+          el.hidden = true;
+        }
+      });
+      const inputs = [...form.querySelectorAll('.plan-text, textarea')];
+      inputs.forEach((el) => {
+        el.readOnly = true;
+      });
+      const checks = [...form.querySelectorAll('.plan-done')];
+      checks.forEach((el) => {
+        el.disabled = true;
+      });
     }
 
     bindDeleteButtons();
-    planAdd.addEventListener('click', () => {
-      planList.appendChild(createPlanRow('', false));
-      bindDeleteButtons();
-    });
+    if (!READ_ONLY) {
+      planAdd.addEventListener('click', () => {
+        planList.appendChild(createPlanRow('', false));
+        bindDeleteButtons();
+      });
+    }
 
     prevMonthBtn.addEventListener('click', () => {
       monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1);
@@ -448,6 +481,10 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (READ_ONLY) {
+        statusEl.textContent = '当前为只读模式，不能提交。';
+        return;
+      }
       statusEl.textContent = '提交中...';
 
       const plans = [];
@@ -488,6 +525,7 @@
       try {
         await fetchRecordedDates();
         renderCalendar();
+        applyReadOnlyMode();
         selectedDateEl.textContent = selectedDate;
         await loadEntryForDate(selectedDate);
       } catch (err) {

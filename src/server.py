@@ -76,12 +76,13 @@ def _render_prompt_fields() -> str:
     )
 
 
-def render_page() -> str:
+def render_page(*, only_look: bool = False) -> str:
     return (
         _load_page_template()
         .replace("__TODAY__", dt.date.today().isoformat())
         .replace("__PLAN_ROWS__", _render_plan_rows())
         .replace("__PROMPTS_HTML__", _render_prompt_fields())
+        .replace("__READ_ONLY__", "true" if only_look else "false")
     )
 
 
@@ -269,6 +270,7 @@ def load_entry(date_text: str, warehouse_dir: Path) -> DailyEntry:
 class DailyHandler(BaseHTTPRequestHandler):
     warehouse_dir: Path = Path("warehouse")
     access_token: str = ""
+    read_only: bool = False
 
     def _json_response(self, code: int, body: dict[str, Any]) -> None:
         encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -357,7 +359,7 @@ class DailyHandler(BaseHTTPRequestHandler):
             self._html_response(403, render_forbidden_page())
             return
 
-        self._html_response(200, render_page())
+        self._html_response(200, render_page(only_look=self.read_only))
 
     def do_POST(self) -> None:  # noqa: N802
         if urlparse(self.path).path != "/submit":
@@ -366,6 +368,9 @@ class DailyHandler(BaseHTTPRequestHandler):
 
         if not self._is_token_valid():
             self._json_response(403, {"error": "missing or invalid token"})
+            return
+        if self.read_only:
+            self._json_response(403, {"error": "server is running in read-only mode"})
             return
 
         try:
@@ -386,10 +391,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Daily plan recorder")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--only-look",
+        action="store_true",
+        help="Start in read-only mode (view entries only, no editing or saving).",
+    )
     args = parser.parse_args()
 
     DailyHandler.warehouse_dir = ROOT_DIR / "warehouse"
     DailyHandler.access_token = secrets.token_urlsafe(24)
+    DailyHandler.read_only = args.only_look
 
     port = find_open_port(args.host, args.port)
     server = ThreadingHTTPServer((args.host, port), DailyHandler)
